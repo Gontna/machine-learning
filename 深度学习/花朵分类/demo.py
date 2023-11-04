@@ -1,5 +1,7 @@
+import copy
 import json
 import os
+import time
 
 import torch
 import torch.nn as nn
@@ -193,3 +195,70 @@ optimizer_ft = optim.Adam(params_to_update, lr=1e-2)
 scheduler = optim.lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
 # 最后一层已经LogSoftmax()了，所以不能nn.CrossEntropyLoss()来计算了，nn.CrossEntropyLoss()相当于logSoftmax()和nn.NLLLoss()整合
 criterion = nn.NLLLoss()
+
+
+# 训练模块
+
+def train_model(model, dataloaders, criterion, optimizer, num_epochs=25,
+                is_inception=False, filename=filename):
+    # is_inception 是否使用其他网络
+    since = time.time()
+
+    bast_acc = 0  # 最优准确率 是否保存模型的判断依据
+
+    model.to(device)  # GPU训练
+
+    val_acc_history = []
+    train_acc_history = []
+    train_losses = []
+    valid_losses = []
+
+    '''
+    这行代码是将当前优化器(optimizer)的学习率(lr)存储在一个列表(LRs)中。具体来说，optimizer.param_groups是一个包含所有参数组的列表，每个参数组包含一组参数和对应的学习率等信息。通过索引[0]，我们可以获取第一个参数组的信息。然后，['lr']用于获取该参数组的学习率，并将其存储在列表LRs中。
+    '''
+    LRs = [optimizer.param_groups[0]['lr']]
+
+    best_model_wts = copy.deepcopy(model.state_dict())
+
+    for epoch in range(num_epochs):
+        print("Epoch:{}/{}".format(epoch, num_epochs - 1))
+        print("_" * 10)
+
+        # 训练和验证
+        for phase in ['train', 'valid']:
+            if phase == 'train':
+                model.train()
+            else:
+                model.eval()
+            running_loss = 0.0
+            running_corrects = 0
+
+            # 遍历数据
+            for inputs, labels in dataloaders[phase]:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+
+                # 梯度清零
+                optimizer.zero_grad()
+                # 只有训练的时候更新梯度
+                with torch.set_grad_enabled(phase == 'train'):
+                    if is_inception and phase == 'train':
+                        output, aux_outputs = model(input)
+                        loss1 = criterion(output, labels)
+                        loss2 = criterion(aux_outputs, labels)
+                        loss = loss1 + 0.4 * loss2
+                    else:  # resnet执行这里
+                        output = model(input)
+                        loss = criterion(output, labels)
+                    _, preds = torch.max(output, 1)
+
+                    # 训练阶段更新权重
+                    if phase == 'train':
+                        loss.backward()
+                        optimizer.step()
+
+                #  计算损失
+                running_loss += loss.item() * inputs.size(0)
+                running_corrects += torch.sum(preds == labels.data)
+
+            epo
